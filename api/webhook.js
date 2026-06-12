@@ -1,5 +1,6 @@
 module.exports = async function handler(req, res) {
   const VERIFY_TOKEN = "calle0";
+  const MAKE_WEBHOOK_URL = "https://hook.us2.make.com/x35kkv799gel57b6r4s2ml6jtf50zxw7";
 
   if (req.method === "GET") {
     const mode = req.query["hub.mode"];
@@ -14,7 +15,13 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method === "POST") {
-    console.log("Mensaje recibido:", JSON.stringify(req.body));
+    await fetch(MAKE_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(req.body)
+    });
 
     return res.status(200).json({ received: true });
   }
