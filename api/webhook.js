@@ -1,4 +1,4 @@
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   const VERIFY_TOKEN = "calle0";
 
   if (req.method === "GET") {
@@ -10,20 +10,14 @@ export default async function handler(req, res) {
       return res.status(200).send(challenge);
     }
 
-    return res.sendStatus(403);
+    return res.status(403).send("Forbidden");
   }
 
   if (req.method === "POST") {
-    await fetch("TU_URL_DE_MAKE", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(req.body)
-    });
+    console.log("Mensaje recibido:", JSON.stringify(req.body));
 
     return res.status(200).json({ received: true });
   }
 
-  return res.sendStatus(405);
-}
+  return res.status(405).send("Method Not Allowed");
+};
