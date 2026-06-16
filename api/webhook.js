@@ -38,6 +38,36 @@ const MENUS = {
   },
 };
 
+const PRODUCTS = {
+  prod_hamb_clasica: { name: "Clásica", category: "hamburguesas" },
+  prod_hamb_bbq: { name: "BBQ", category: "hamburguesas" },
+  prod_hamb_doble: { name: "Doble", category: "hamburguesas" },
+  prod_bebida_coca: { name: "Coca Cola", category: "bebidas" },
+  prod_bebida_fanta: { name: "Fanta", category: "bebidas" },
+  prod_bebida_agua: { name: "Agua", category: "bebidas" },
+  combo_clasico: { name: "Combo Clásico", category: "combos" },
+  combo_doble: { name: "Combo Doble", category: "combos" },
+  combo_familiar: { name: "Combo Familiar", category: "combos" },
+};
+
+const EXTRAS_BY_CATEGORY = {
+  hamburguesas: [
+    { id: "queso", title: "Extra queso", name: "Extra queso" },
+    { id: "tocino", title: "Extra tocino", name: "Extra tocino" },
+    { id: "sin_extra", title: "Sin extras", name: "Sin extras" },
+  ],
+  bebidas: [
+    { id: "hielo", title: "Extra hielo", name: "Extra hielo" },
+    { id: "sin_hielo", title: "Sin hielo", name: "Sin hielo" },
+    { id: "sin_extra", title: "Sin extras", name: "Sin extras" },
+  ],
+  combos: [
+    { id: "papas_grandes", title: "Papas grandes", name: "Papas grandes" },
+    { id: "extra_salsa", title: "Extra salsa", name: "Extra salsa" },
+    { id: "sin_extra", title: "Sin extras", name: "Sin extras" },
+  ],
+};
+
 module.exports = async function handler(req, res) {
   if (req.method === "GET") {
     return verifyWebhook(req, res);
@@ -125,16 +155,56 @@ async function processIncomingMessage(message) {
     return;
   }
 
-  const menu = resolveMenu({ textBody, buttonReplyId });
+  const response = resolveResponse({ textBody, buttonReplyId });
 
-  if (!menu) {
+  if (!response) {
     console.log("No automatic response matched this message.");
     return;
   }
 
-  const payload = buildInteractiveButtonMessage(menu.body, menu.buttons);
-  await sendWhatsAppMessage(from, payload);
-  console.log("Respuesta enviada:", menu.body);
+  await sendWhatsAppMessage(from, response.payload);
+  console.log("Respuesta enviada:", response.logText);
+}
+
+function resolveResponse({ textBody, buttonReplyId }) {
+  if (buttonReplyId?.startsWith("confirm:")) {
+    return buildOrderConfirmedResponse(buttonReplyId);
+  }
+
+  if (buttonReplyId === "cancel_order") {
+    return {
+      payload: buildTextMessage(
+        "Pedido cancelado.\n\nEscriba menu para comenzar de nuevo."
+      ),
+      logText: "Pedido cancelado.",
+    };
+  }
+
+  if (buttonReplyId === "back_to_menu") {
+    return {
+      payload: buildInteractiveButtonMessage(MENUS.main.body, MENUS.main.buttons),
+      logText: MENUS.main.body,
+    };
+  }
+
+  if (buttonReplyId?.startsWith("extra:")) {
+    return buildOrderConfirmationResponse(buttonReplyId);
+  }
+
+  if (buttonReplyId && PRODUCTS[buttonReplyId]) {
+    return buildExtrasResponse(buttonReplyId);
+  }
+
+  const menu = resolveMenu({ textBody, buttonReplyId });
+
+  if (!menu) {
+    return null;
+  }
+
+  return {
+    payload: buildInteractiveButtonMessage(menu.body, menu.buttons),
+    logText: menu.body,
+  };
 }
 
 function resolveMenu({ textBody, buttonReplyId }) {
@@ -148,6 +218,88 @@ function resolveMenu({ textBody, buttonReplyId }) {
   );
 
   return shouldShowMainMenu ? MENUS.main : null;
+}
+
+function buildExtrasResponse(productId) {
+  const product = PRODUCTS[productId];
+  const extras = EXTRAS_BY_CATEGORY[product.category] || [];
+  const body = `Seleccionaste: ${product.name}\n\n¿Deseas agregar extras?`;
+  const buttons = extras.map((extra) => ({
+    id: `extra:${productId}:${extra.id}`,
+    title: extra.title,
+  }));
+
+  return {
+    payload: buildInteractiveButtonMessage(body, buttons),
+    logText: body,
+  };
+}
+
+function buildOrderConfirmationResponse(buttonReplyId) {
+  const selection = parseSelectionButtonId(buttonReplyId, "extra");
+
+  if (!selection) {
+    return null;
+  }
+
+  const { productId, extraId } = selection;
+  const product = PRODUCTS[productId];
+  const extra = findExtra(product?.category, extraId);
+
+  if (!product || !extra) {
+    return null;
+  }
+
+  const body = `Resumen del pedido:\n\nProducto: ${product.name}\nExtra: ${extra.name}\n\n¿Deseas confirmar el pedido?`;
+
+  return {
+    payload: buildInteractiveButtonMessage(body, [
+      { id: `confirm:${productId}:${extraId}`, title: "Confirmar" },
+      { id: "back_to_menu", title: "Cambiar" },
+      { id: "cancel_order", title: "Cancelar" },
+    ]),
+    logText: body,
+  };
+}
+
+function buildOrderConfirmedResponse(buttonReplyId) {
+  const selection = parseSelectionButtonId(buttonReplyId, "confirm");
+
+  if (!selection) {
+    return null;
+  }
+
+  const { productId, extraId } = selection;
+  const product = PRODUCTS[productId];
+  const extra = findExtra(product?.category, extraId);
+
+  if (!product || !extra) {
+    return null;
+  }
+
+  const body = `✅ Pedido confirmado\n\nProducto: ${product.name}\nExtra: ${extra.name}\n\nGracias. En breve prepararemos tu pedido.`;
+
+  return {
+    payload: buildTextMessage(body),
+    logText: body,
+  };
+}
+
+function parseSelectionButtonId(buttonReplyId, prefix) {
+  const parts = String(buttonReplyId || "").split(":");
+
+  if (parts.length !== 3 || parts[0] !== prefix) {
+    return null;
+  }
+
+  return {
+    productId: parts[1],
+    extraId: parts[2],
+  };
+}
+
+function findExtra(category, extraId) {
+  return EXTRAS_BY_CATEGORY[category]?.find((extra) => extra.id === extraId);
 }
 
 function buildInteractiveButtonMessage(body, buttons) {
@@ -165,6 +317,16 @@ function buildInteractiveButtonMessage(body, buttons) {
           },
         })),
       },
+    },
+  };
+}
+
+function buildTextMessage(body) {
+  return {
+    type: "text",
+    text: {
+      preview_url: false,
+      body,
     },
   };
 }
